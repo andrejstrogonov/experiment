@@ -1,0 +1,23 @@
+entity NPC_Guard {
+    components: [Transform, AI, Vision, Physics];
+
+    on Tick() {
+        patrol();
+        if (seePlayer) { chase(player);  }
+    }
+
+    on Damage(amount) {
+        takeDamage(amount);
+    }
+
+}
+
+entity Companion {
+    components: [Transform, AI, Follow];
+
+    on Update(dt) {
+        follow(target, dt);
+    }
+
+}
+

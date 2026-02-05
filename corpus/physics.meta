@@ -1,0 +1,12 @@
+entity RigidBody {
+    components: [Transform, Physics];
+    on Integrate(dt) {
+        velocity = velocity + acceleration * dt;
+        position = position + velocity * dt;
+    }
+}
+
+entity Projectile {
+    components: [Transform, Physics];
+    on Update(dt) { move(velocity * dt); }
+}

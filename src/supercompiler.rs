@@ -1,0 +1,138 @@
+use std::collections::HashMap;
+use std::fs::{create_dir_all, read_to_string, write, read_dir};
+use crate::meta_lang::parse_entities;
+use crate::ast::{parse_statements, stmt_to_string, fold_constants, inline_helpers, dce};
+
+/// Improved supercompiler: build AST for bodies, run transformations (const-folding, inlining, DCE),
+/// and write simplified corpus.
+pub fn simplify_corpus(in_dir: &str, out_dir: &str) -> SimplifyReport {
+    let mut seq_count: HashMap<String, usize> = HashMap::new();
+    let mut files = Vec::new();
+
+    if let Ok(entries) = read_dir(in_dir) {
+        for ent in entries.flatten() {
+            let p = ent.path();
+            if p.is_file() && p.extension().map(|e| e == "meta").unwrap_or(false) {
+                if let Ok(s) = read_to_string(&p) {
+                    files.push((p.file_name().unwrap().to_string_lossy().to_string(), s.clone()));
+                    let entities = parse_entities(&s);
+                    for e in entities {
+                        for ev in e.events {
+                            let stmts = parse_statements(&ev.body);
+                            let seq = stmts.iter().filter_map(|st| match st {
+                                crate::ast::Stmt::Expr(crate::ast::Expr::Call { name, .. }) => Some(name.clone()),
+                                _ => None,
+                            }).collect::<Vec<_>>();
+                            if seq.len() >= 2 {
+                                let key = seq.join(";");
+                                *seq_count.entry(key).or_default() += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // select repeated sequences
+    let mut candidates: Vec<(String, usize)> = seq_count.into_iter().filter(|(_,c)| *c > 1).collect();
+    candidates.sort_by(|a,b| b.1.cmp(&a.1));
+
+    // map sequence -> helper name and store helper AST bodies
+    let mut helper_map_seq_to_name: HashMap<String,String> = HashMap::new();
+    let mut helper_bodies: HashMap<String, Vec<crate::ast::Stmt>> = HashMap::new();
+    let mut helper_idx = 0usize;
+    for (seq, _count) in &candidates {
+        helper_idx += 1;
+        let helper_name = format!("_helper_{}", helper_idx);
+        helper_map_seq_to_name.insert(seq.clone(), helper_name.clone());
+        // build helper AST body from seq
+        let parts: Vec<&str> = seq.split(';').collect();
+        let mut body_stmts = Vec::new();
+        for p in parts { body_stmts.push(crate::ast::Stmt::Expr(crate::ast::Expr::Call { name: p.to_string(), args: vec![] })); }
+        helper_bodies.insert(helper_name.clone(), body_stmts);
+    }
+
+    // refal-like reduction: resolve wrapper helpers (helpers that simply call another helper)
+    crate::ast::resolve_wrappers(&mut helper_bodies);
+
+    let _ = create_dir_all(out_dir);
+    let mut total_replacements = 0usize;
+
+    for (fname, content) in files {
+        let mut out = String::new();
+        let entities = parse_entities(&content);
+        for e in entities {
+            out.push_str(&format!("entity {} {{\n", e.name));
+            if !e.components.is_empty() {
+                out.push_str(&format!("    components: [{}];\n\n", e.components.join(", ")));
+            }
+            for ev in e.events {
+                let mut stmts = parse_statements(&ev.body);
+
+                // Fold constants
+                fold_constants(&mut stmts);
+                // Inline helpers where present
+                // find matching seq key for this event
+                let seq_key = stmts.iter().filter_map(|st| match st {
+                    crate::ast::Stmt::Expr(crate::ast::Expr::Call { name, .. }) => Some(name.clone()),
+                    _ => None,
+                }).collect::<Vec<_>>().join(";");
+                if let Some(helper_name) = helper_map_seq_to_name.get(&seq_key) {
+                    // replace entire body with single helper call
+                    let new_body = format!("{}();", helper_name);
+                    out.push_str(&format!("    on {}({}) {{\n        {}\n    }}\n\n", ev.name, ev.params.unwrap_or_default(), new_body));
+                    total_replacements += 1;
+                    continue;
+                }
+
+                // Else inline helper calls inside
+                inline_helpers(&mut stmts, &helper_bodies);
+                // DCE
+                dce(&mut stmts);
+
+                // stringify
+                out.push_str(&format!("    on {}({}) {{\n", ev.name, ev.params.unwrap_or_default()));
+                for st in &stmts {
+                    let s = stmt_to_string(st);
+                    if !s.is_empty() { out.push_str(&format!("        {}\n", s)); }
+                }
+                out.push_str("    }\n\n");
+            }
+            out.push_str("}\n\n");
+        }
+
+        if !helper_bodies.is_empty() {
+            out.push_str("// Helpers generated by supercompiler\n");
+            for (name, body) in &helper_bodies {
+                out.push_str(&format!("function {}() {{ ", name));
+                for st in body { out.push_str(&expr_stmt_block_to_string(st)); }
+                out.push_str(" }\n");
+            }
+        }
+
+        let out_path = format!("{}/{}", out_dir.trim_end_matches('/'), fname);
+        let _ = write(out_path, out);
+    }
+
+    SimplifyReport { helper_count: helper_bodies.len(), total_replacements }
+}
+
+fn expr_stmt_block_to_string(stmt: &crate::ast::Stmt) -> String {
+    match stmt {
+        crate::ast::Stmt::Expr(e) => crate::ast::expr_to_string(e) + "; ",
+        crate::ast::Stmt::If { cond, body } => {
+            let mut s = format!("if ({}) {{ ", crate::ast::expr_to_string(cond));
+            for st in body { s.push_str(&expr_stmt_block_to_string(st)); }
+            s.push_str("} ");
+            s
+        }
+        crate::ast::Stmt::Empty => String::new(),
+    }
+}
+
+#[derive(Debug)]
+pub struct SimplifyReport {
+    pub helper_count: usize,
+    pub total_replacements: usize,
+}

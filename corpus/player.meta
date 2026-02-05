@@ -1,0 +1,20 @@
+entity Player {
+    components: [Transform, Sprite, Physics, Input];
+
+    on Update(dt) {
+        move(velocity * dt);
+        collide();
+    }
+
+    on Collision(other) {
+        if (other.tag == "Enemy") {
+            takeDamage(10);
+        }
+    }
+}
+
+entity Bullet {
+    components: [Transform, Physics];
+    on Update(dt) { move(speed * dt); }
+    on Hit(target) { if (target.tag == "Enemy") { dealDamage(25); } }
+}
