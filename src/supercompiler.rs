@@ -5,7 +5,7 @@ use crate::ast::{parse_statements, stmt_to_string, fold_constants, inline_helper
 
 /// Improved supercompiler: build AST for bodies, run transformations (const-folding, inlining, DCE),
 /// and write simplified corpus.
-pub fn simplify_corpus(in_dir: &str, out_dir: &str) -> SimplifyReport {
+pub fn simplify_corpus(in_dir: &str, out_dir: &str) -> (SimplifyReport, Vec<(String,String)>) {
     let mut seq_count: HashMap<String, usize> = HashMap::new();
     let mut files = Vec::new();
 
@@ -42,7 +42,20 @@ pub fn simplify_corpus(in_dir: &str, out_dir: &str) -> SimplifyReport {
     let mut helper_map_seq_to_name: HashMap<String,String> = HashMap::new();
     let mut helper_bodies: HashMap<String, Vec<crate::ast::Stmt>> = HashMap::new();
     let mut helper_idx = 0usize;
-    for (seq, _count) in &candidates {
+    // Aggressive inlining selection: choose sequences by heuristic budget
+    // heuristic: benefit = occurrences * length - cost; pick until budget
+    let mut budget = 10usize; // budget units (tunable)
+    let mut chosen: Vec<(String, usize)> = Vec::new();
+    for (seq, count) in &candidates {
+        let len = seq.split(';').count();
+        let _benefit = (*count).saturating_mul(len) as isize - 1; // simple heuristic
+        if budget >= len {
+            chosen.push((seq.clone(), *count));
+            budget = budget.saturating_sub(len);
+        }
+    }
+
+    for (seq, _count) in &chosen {
         helper_idx += 1;
         let helper_name = format!("_helper_{}", helper_idx);
         helper_map_seq_to_name.insert(seq.clone(), helper_name.clone());
@@ -115,7 +128,8 @@ pub fn simplify_corpus(in_dir: &str, out_dir: &str) -> SimplifyReport {
         let _ = write(out_path, out);
     }
 
-    SimplifyReport { helper_count: helper_bodies.len(), total_replacements }
+    let chosen_helpers: Vec<(String,String)> = helper_map_seq_to_name.into_iter().map(|(k,v)| (k,v)).collect();
+    (SimplifyReport { helper_count: helper_bodies.len(), total_replacements }, chosen_helpers)
 }
 
 fn expr_stmt_block_to_string(stmt: &crate::ast::Stmt) -> String {

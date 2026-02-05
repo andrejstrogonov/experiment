@@ -3,6 +3,7 @@ mod runtime;
 mod analyzer;
 mod ast;
 mod supercompiler;
+mod aot_generator;
 
 use meta_lang::parse_entities;
 use runtime::{EntityInstance, Value, execute_event};
@@ -60,8 +61,16 @@ entity Player {
 
     // Run supercompiler simplification and analyze simplified corpus
     println!("\n--- Supercompiler: simplifying corpus -> corpus_simplified ---");
-    let rep = supercompiler::simplify_corpus("corpus", "corpus_simplified");
+    let (rep, chosen) = supercompiler::simplify_corpus("corpus", "corpus_simplified");
     println!("Supercompiler produced {} helpers, total replacements {}", rep.helper_count, rep.total_replacements);
+    println!("Chosen hot sequences: {:?}", chosen);
     println!("\n--- Analysis of simplified corpus ---");
     analyze_corpus("corpus_simplified");
+
+    // If we have hot sequences, generate AOT benchmark
+    if !chosen.is_empty() {
+        aot_generator::generate_and_run_aot(&chosen);
+    } else {
+        println!("No hot sequences selected for AOT generation.");
+    }
 }
