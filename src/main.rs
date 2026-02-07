@@ -7,6 +7,7 @@ use std::env;
 fn main() {
     // If user asked to serve the web UI, build wasm and start a simple server
     let args: Vec<String> = env::args().collect();
+    
     if args.iter().any(|a| a == "--serve-web") {
         println!("Building web frontend (wasm-pack)...");
         let status = Command::new("wasm-pack")
@@ -42,6 +43,12 @@ fn main() {
             Err(e) => eprintln!("Failed to start server: {}", e),
         }
 
+        return;
+    }
+
+    if args.iter().any(|a| a == "--3d") {
+        println!("Starting 3D Airplane Viewer...");
+        experiment::renderer::run();
         return;
     }
 

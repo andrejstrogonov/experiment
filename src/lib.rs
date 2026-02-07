@@ -8,6 +8,7 @@ pub mod game_engine;
 pub mod components;
 pub mod scene;
 pub mod systems;
+pub mod renderer;
 
 // Re-export commonly used types for tests and external use
 pub use meta_lang::parse_entities;

@@ -6,6 +6,12 @@ authors = ["Andrej Strogonov"]
 description = "Meta Game Engine MVP - Rust-based game engine with DSL for entity definition"
 
 [dependencies]
+wgpu = "0.19"
+winit = "0.29"
+glam = "0.27"
+tobj = "4.0"
+pollster = "0.3"
+bytemuck = { version = "1.14", features = ["derive"] }
 
 [workspace]
 members = ["web"]

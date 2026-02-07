@@ -1,6 +1,11 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{window, HtmlCanvasElement, CanvasRenderingContext2d};
+use web_sys::{window, HtmlCanvasElement, CanvasRenderingContext2d, Window};
 use std::collections::HashMap;
+use wasm_bindgen::JsValue;
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen::JsCast;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 struct Event { name: String, params: Option<String>, body: String }
@@ -98,12 +103,6 @@ fn execute_event(entity: &mut EntityInstance, event: &Event, params: &HashMap<St
     exec_statements(entity, body, params);
 }
 
-use wasm_bindgen::JsValue;
-use wasm_bindgen::closure::Closure;
-use wasm_bindgen::JsCast;
-use std::cell::RefCell;
-use std::rc::Rc;
-
 #[wasm_bindgen]
 pub fn start_app(canvas_id: &str, script: &str) {
     let window = window().expect("no global window");
@@ -126,60 +125,76 @@ pub fn start_app(canvas_id: &str, script: &str) {
 
     let mut last = js_sys::Date::now();
 
-    // animation loop closure
-    let f: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
-    let g = f.clone();
-
+    // animation loop using recursion through request_animation_frame
     let ctx = Rc::new(ctx);
     let plane = Rc::new(RefCell::new(plane));
-    let tick_event = tick_event;
+    let tick_event_ref = std::rc::Rc::new(tick_event);
 
-    // clone `f` to move into the closure for scheduling the next frame
-    let f_inner = f.clone();
-    *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
-        let now = js_sys::Date::now();
-        let dt = (now - last) / 1000.0;
-        last = now;
+    fn schedule_frame(
+        window: &web_sys::Window,
+        ctx: Rc<CanvasRenderingContext2d>,
+        plane: Rc<RefCell<EntityInstance>>,
+        tick_event: Rc<Option<Event>>,
+        last_time: Rc<RefCell<f64>>,
+        canvas: HtmlCanvasElement,
+    ) {
+        let ctx_clone = ctx.clone();
+        let plane_clone = plane.clone();
+        let tick_event_clone = tick_event.clone();
+        let canvas_clone = canvas.clone();
 
-        // execute script Tick
-        if let Some(ev) = &tick_event {
-            let mut params = HashMap::new();
-            params.insert("dt".to_string(), Value::Float(dt));
-            params.insert("other".to_string(), Value::EntitySnapshot("Enemy".to_string(), "EnemyTag".to_string(), 50));
-            let mut p = plane.borrow_mut();
-            execute_event(&mut p, ev, &params);
-        }
+        let closure = Closure::once(Box::new(move || {
+            let now = js_sys::Date::now();
+            let mut last_mut = last_time.borrow_mut();
+            let dt = (now - *last_mut) / 1000.0;
+            *last_mut = now;
+            drop(last_mut); // release borrow
 
-        // render simple airplane
-        let ctx = ctx.clone();
-        let mut p = plane.borrow_mut();
-        let w = canvas.width() as f64; let h = canvas.height() as f64;
-        ctx.set_fill_style(&JsValue::from_str("#0b1220"));
-        ctx.fill_rect(0.0, 0.0, w, h);
-        ctx.set_fill_style(&JsValue::from_str("#f97316"));
-        ctx.begin_path();
-        let x = p.position; let y = h/2.0;
-        ctx.move_to(x as f64, y as f64 - 10.0);
-        ctx.line_to(x as f64 + 30.0, y as f64);
-        ctx.line_to(x as f64, y as f64 + 10.0);
-        ctx.close_path();
-        ctx.fill();
+            // execute script Tick
+            if let Some(ev) = tick_event_clone.as_ref() {
+                let mut params = HashMap::new();
+                params.insert("dt".to_string(), Value::Float(dt));
+                params.insert("other".to_string(), Value::EntitySnapshot("Enemy".to_string(), "EnemyTag".to_string(), 50));
+                {
+                    let mut p = plane_clone.borrow_mut();
+                    execute_event(&mut p, ev, &params);
+                }
+            }
 
-        // draw HUD
-        ctx.set_fill_style(&JsValue::from_str("white"));
-        ctx.fill_text(&format!("pos: {:.2} vel: {:.2} hp: {}", p.position, p.velocity, p.health), 10.0, 20.0).ok();
+            // render simple airplane
+            {
+                let p = plane_clone.borrow();
+                let w = canvas_clone.width() as f64;
+                let h = canvas_clone.height() as f64;
+                ctx_clone.set_fill_style(&JsValue::from_str("#0b1220"));
+                ctx_clone.fill_rect(0.0, 0.0, w, h);
+                ctx_clone.set_fill_style(&JsValue::from_str("#f97316"));
+                ctx_clone.begin_path();
+                let x = p.position;
+                let y = h / 2.0;
+                ctx_clone.move_to(x as f64, y as f64 - 10.0);
+                ctx_clone.line_to(x as f64 + 30.0, y as f64);
+                ctx_clone.line_to(x as f64, y as f64 + 10.0);
+                ctx_clone.close_path();
+                ctx_clone.fill();
 
-        // request next frame
-        let window = web_sys::window().unwrap();
-        let cb_opt = f_inner.borrow();
-        if let Some(cb_ref) = cb_opt.as_ref() {
-            window.request_animation_frame(cb_ref.as_ref().unchecked_ref()).unwrap();
-        }
-    }) as Box<dyn FnMut()>));
+                // draw HUD
+                ctx_clone.set_fill_style(&JsValue::from_str("white"));
+                ctx_clone.fill_text(
+                    &format!("pos: {:.2} vel: {:.2} hp: {}", p.position, p.velocity, p.health),
+                    10.0,
+                    20.0,
+                ).ok();
+            }
 
-    // start loop
-    let cb_opt = f.borrow();
-    if let Some(cb_ref) = cb_opt.as_ref() {
-        window.request_animation_frame(cb_ref.as_ref().unchecked_ref()).unwrap();
+            // schedule next frame
+            let window = web_sys::window().unwrap();
+            schedule_frame(&window, ctx_clone, plane_clone, tick_event_clone, last_time.clone(), canvas_clone);
+        }));
+
+        window.request_animation_frame(closure.as_ref().unchecked_ref()).ok();
+        closure.forget();
     }
+
+    schedule_frame(&window, ctx, plane, tick_event_ref, Rc::new(RefCell::new(last)), canvas);
 }
