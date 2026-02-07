@@ -1,11 +1,11 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Entity {
     pub name: String,
     pub components: Vec<String>,
     pub events: Vec<Event>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Event {
     pub name: String,
     pub params: Option<String>,

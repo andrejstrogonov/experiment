@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use crate::meta_lang::Event;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EntityInstance {
     pub name: String,
     pub tag: String,
@@ -10,7 +10,7 @@ pub struct EntityInstance {
     pub position: f64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Float(f64),
     Int(i64),
