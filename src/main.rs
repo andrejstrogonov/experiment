@@ -12,8 +12,50 @@ mod systems;
 use meta_lang::parse_entities;
 use runtime::{EntityInstance, Value, execute_event};
 use game_engine::{GameEngine, Node, Component};
+use std::process::{Command, Stdio};
+use std::env;
 
 fn main() {
+    // If user asked to serve the web UI, build wasm and start a simple server
+    let args: Vec<String> = env::args().collect();
+    if args.iter().any(|a| a == "--serve-web") {
+        println!("Building web frontend (wasm-pack)...");
+        let status = Command::new("wasm-pack")
+            .arg("build")
+            .arg("--target")
+            .arg("web")
+            .current_dir("web")
+            .status();
+
+        match status {
+            Ok(s) if s.success() => println!("wasm-pack build succeeded"),
+            Ok(s) => eprintln!("wasm-pack returned non-zero: {}", s),
+            Err(e) => eprintln!("Failed to run wasm-pack: {}", e),
+        }
+
+        println!("Starting static server at http://localhost:8000 (serving web/static)...");
+        // Try to start python http.server; do not wait for it to finish.
+        let server = Command::new("python")
+            .arg("-m")
+            .arg("http.server")
+            .arg("--directory")
+            .arg("web/static")
+            .arg("8000")
+            .stdout(Stdio::inherit())
+            .stderr(Stdio::inherit())
+            .spawn();
+
+        match server {
+            Ok(mut child) => {
+                println!("Server started (press Ctrl+C to stop)");
+                let _ = child.wait();
+            }
+            Err(e) => eprintln!("Failed to start server: {}", e),
+        }
+
+        return;
+    }
+
     println!("=== META GAME ENGINE MVP ===\n");
 
     // ============= PART 1: meta_lang demonstration =============
