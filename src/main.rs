@@ -3,7 +3,7 @@ mod runtime;
 mod analyzer;
 mod ast;
 mod supercompiler;
-mod aot_generator;
+ mod aot_generator;
 
 use meta_lang::parse_entities;
 use runtime::{EntityInstance, Value, execute_event};
