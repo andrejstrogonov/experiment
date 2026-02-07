@@ -1,17 +1,6 @@
-mod meta_lang;
-mod runtime;
-mod analyzer;
-mod ast;
-mod supercompiler;
-mod aot_generator;
-mod game_engine;
-mod components;
-mod scene;
-mod systems;
-
-use meta_lang::parse_entities;
-use runtime::{EntityInstance, Value, execute_event};
-use game_engine::{GameEngine, Node, Component};
+use experiment::meta_lang::parse_entities;
+use experiment::runtime::{EntityInstance, Value, execute_event};
+use experiment::game_engine::{GameEngine, Node, Component};
 use std::process::{Command, Stdio};
 use std::env;
 

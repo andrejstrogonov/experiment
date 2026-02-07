@@ -6,3 +6,6 @@ authors = ["Andrej Strogonov"]
 description = "Meta Game Engine MVP - Rust-based game engine with DSL for entity definition"
 
 [dependencies]
+
+[workspace]
+members = ["web"]

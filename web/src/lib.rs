@@ -1,5 +1,5 @@
 use wasm_bindgen::prelude::*;
-use web_sys::{window, Document, HtmlCanvasElement, CanvasRenderingContext2d};
+use web_sys::{window, HtmlCanvasElement, CanvasRenderingContext2d};
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
@@ -127,13 +127,15 @@ pub fn start_app(canvas_id: &str, script: &str) {
     let mut last = js_sys::Date::now();
 
     // animation loop closure
-    let f = Rc::new(RefCell::new(None));
+    let f: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
     let g = f.clone();
 
     let ctx = Rc::new(ctx);
     let plane = Rc::new(RefCell::new(plane));
     let tick_event = tick_event;
 
+    // clone `f` to move into the closure for scheduling the next frame
+    let f_inner = f.clone();
     *g.borrow_mut() = Some(Closure::wrap(Box::new(move || {
         let now = js_sys::Date::now();
         let dt = (now - last) / 1000.0;
@@ -169,11 +171,15 @@ pub fn start_app(canvas_id: &str, script: &str) {
 
         // request next frame
         let window = web_sys::window().unwrap();
-        let cb = f.borrow();
-        if let Some(cb) = cb.as_ref() { window.request_animation_frame(cb.as_ref().unchecked_ref()).unwrap(); }
+        let cb_opt = f_inner.borrow();
+        if let Some(cb_ref) = cb_opt.as_ref() {
+            window.request_animation_frame(cb_ref.as_ref().unchecked_ref()).unwrap();
+        }
     }) as Box<dyn FnMut()>));
 
     // start loop
-    let cb = f.borrow();
-    if let Some(cb) = cb.as_ref() { window.request_animation_frame(cb.as_ref().unchecked_ref()).unwrap(); }
+    let cb_opt = f.borrow();
+    if let Some(cb_ref) = cb_opt.as_ref() {
+        window.request_animation_frame(cb_ref.as_ref().unchecked_ref()).unwrap();
+    }
 }
