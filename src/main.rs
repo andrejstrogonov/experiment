@@ -52,6 +52,12 @@ fn main() {
         return;
     }
 
+    if args.iter().any(|a| a == "--cube") {
+        println!("Starting 3D Cube Viewer...");
+        experiment::renderer::run_with_model("cube");
+        return;
+    }
+
     println!("=== META GAME ENGINE MVP ===\n");
 
     // ============= PART 1: meta_lang demonstration =============

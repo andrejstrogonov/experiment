@@ -54,12 +54,14 @@ pub struct Renderer {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     rotation: Vec2,
+    rotation_z: f32,
     mouse_pressed: bool,
     last_mouse_pos: Vec2,
+    model: String,
 }
 
 impl Renderer {
-    pub async fn new(window: Arc<Window>) -> Self {
+    pub async fn new(window: Arc<Window>, model: &str) -> Self {
         let size = window.inner_size();
 
         // Create WGPU instance
@@ -111,8 +113,11 @@ impl Renderer {
 
         surface.configure(&device, &config);
 
-        // Load airplane model
-        let (vertices, indices) = load_airplane_model();
+        // Load model
+        let (vertices, indices) = match model {
+            "cube" => load_cube_model(),
+            _ => load_airplane_model(),
+        };
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
@@ -259,8 +264,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             camera_buffer,
             camera_bind_group,
             rotation: Vec2::ZERO,
+            rotation_z: 0.0,
             mouse_pressed: false,
             last_mouse_pos: Vec2::ZERO,
+            model: model.to_string(),
         }
     }
 
@@ -300,6 +307,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
 
     pub fn update(&mut self) {
+        // Auto-rotate for cube
+        if self.model == "cube" {
+            self.rotation.x += 0.01;
+            self.rotation.y += 0.015;
+            self.rotation_z += 0.02;
+        }
+
         // Create camera matrices
         let eye = Vec3::new(0.0, 1.5, 3.0);
         let target = Vec3::ZERO;
@@ -316,7 +330,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // Apply rotation to model
         let rotation_x = Mat4::from_rotation_x(self.rotation.x);
         let rotation_y = Mat4::from_rotation_y(self.rotation.y);
-        let model = rotation_y * rotation_x;
+        let rotation_z = Mat4::from_rotation_z(self.rotation_z);
+        let model = rotation_z * rotation_y * rotation_x;
 
         let view_proj = proj * view * model;
 
@@ -382,7 +397,7 @@ fn load_airplane_model() -> (Vec<Vertex>, Vec<u32>) {
         Ok(data) => data,
         Err(e) => {
             eprintln!("Failed to load airplane model: {}", e);
-            return create_default_cube();
+            return load_cube_model();
         }
     };
 
@@ -421,7 +436,7 @@ fn load_airplane_model() -> (Vec<Vertex>, Vec<u32>) {
     }
 
     if vertices.is_empty() {
-        create_default_cube()
+        load_cube_model()
     } else {
         (vertices, indices)
     }
@@ -479,32 +494,57 @@ fn generate_normals(positions: &[f32], indices: &[u32]) -> Vec<f32> {
     normals
 }
 
-fn create_default_cube() -> (Vec<Vertex>, Vec<u32>) {
+fn load_cube_model() -> (Vec<Vertex>, Vec<u32>) {
     let vertices = vec![
-        Vertex {
-            position: [-0.5, -0.5, -0.5],
-            normal: [0.0, 0.0, -1.0],
-        },
-        Vertex {
-            position: [0.5, -0.5, -0.5],
-            normal: [0.0, 0.0, -1.0],
-        },
-        Vertex {
-            position: [0.5, 0.5, -0.5],
-            normal: [0.0, 0.0, -1.0],
-        },
-        Vertex {
-            position: [-0.5, 0.5, -0.5],
-            normal: [0.0, 0.0, -1.0],
-        },
+        // Front face
+        Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0] },
+        Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, 0.0, 1.0] },
+        Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0] },
+        Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 0.0, 1.0] },
+        // Back face
+        Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0] },
+        Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0] },
+        Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 0.0, -1.0] },
+        Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, 0.0, -1.0] },
+        // Top face
+        Vertex { position: [-0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0] },
+        Vertex { position: [-0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0] },
+        Vertex { position: [ 0.5,  0.5,  0.5], normal: [0.0, 1.0, 0.0] },
+        Vertex { position: [ 0.5,  0.5, -0.5], normal: [0.0, 1.0, 0.0] },
+        // Bottom face
+        Vertex { position: [-0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0] },
+        Vertex { position: [ 0.5, -0.5, -0.5], normal: [0.0, -1.0, 0.0] },
+        Vertex { position: [ 0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0] },
+        Vertex { position: [-0.5, -0.5,  0.5], normal: [0.0, -1.0, 0.0] },
+        // Right face
+        Vertex { position: [ 0.5, -0.5, -0.5], normal: [1.0, 0.0, 0.0] },
+        Vertex { position: [ 0.5,  0.5, -0.5], normal: [1.0, 0.0, 0.0] },
+        Vertex { position: [ 0.5,  0.5,  0.5], normal: [1.0, 0.0, 0.0] },
+        Vertex { position: [ 0.5, -0.5,  0.5], normal: [1.0, 0.0, 0.0] },
+        // Left face
+        Vertex { position: [-0.5, -0.5, -0.5], normal: [-1.0, 0.0, 0.0] },
+        Vertex { position: [-0.5, -0.5,  0.5], normal: [-1.0, 0.0, 0.0] },
+        Vertex { position: [-0.5,  0.5,  0.5], normal: [-1.0, 0.0, 0.0] },
+        Vertex { position: [-0.5,  0.5, -0.5], normal: [-1.0, 0.0, 0.0] },
     ];
 
-    let indices = vec![0, 1, 2, 0, 2, 3];
+    let indices = vec![
+        0, 1, 2, 0, 2, 3,       // front
+        4, 5, 6, 4, 6, 7,       // back
+        8, 9, 10, 8, 10, 11,    // top
+        12, 13, 14, 12, 14, 15, // bottom
+        16, 17, 18, 16, 18, 19, // right
+        20, 21, 22, 20, 22, 23, // left
+    ];
 
     (vertices, indices)
 }
 
 pub fn run() {
+    run_with_model("airplane");
+}
+
+pub fn run_with_model(model: &str) {
     let event_loop = EventLoop::new().unwrap();
     let window = Arc::new(
         WindowBuilder::new()
@@ -514,7 +554,7 @@ pub fn run() {
             .unwrap()
     );
 
-    let mut renderer = pollster::block_on(Renderer::new(window.clone()));
+    let mut renderer = pollster::block_on(Renderer::new(window.clone(), model));
 
     let _ = event_loop.run(move |event, event_loop_target| {
         match event {
