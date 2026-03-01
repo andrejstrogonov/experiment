@@ -53,10 +53,30 @@ fn parse_entities(input: &str) -> Vec<(String, Vec<Event>)> {
 }
 
 #[derive(Clone)]
-struct EntityInstance { name: String, tag: String, health: i32, velocity: f64, position: f64 }
+struct EntityInstance {
+    name: String,
+    tag: String,
+    health: i32,
+    velocity: f64,
+    position: f64,
+    rotation_x: f64,
+    rotation_y: f64,
+    rotation_z: f64,
+}
 
 impl EntityInstance {
-    fn new(name: &str, tag: &str) -> Self { Self { name: name.to_string(), tag: tag.to_string(), health: 100, velocity: 0.0, position: 0.0 } }
+    fn new(name: &str, tag: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            tag: tag.to_string(),
+            health: 100,
+            velocity: 0.0,
+            position: 0.0,
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            rotation_z: 0.0,
+        }
+    }
 }
 
 enum Value { Float(f64), Int(i64), Str(String), EntitySnapshot(String, String, i32) }
@@ -83,7 +103,35 @@ fn exec_statements(entity: &mut EntityInstance, body: &str, params: &HashMap<Str
         let s = stmt.trim(); if s.is_empty() { continue; }
         if s.starts_with("move(") {
             if s.contains("velocity * dt") {
-                if let Some(Value::Float(dt)) = params.get("dt") { let dist = entity.velocity * dt; entity.position += dist; web_sys::console::log_1(&format!("{} moves by {}", entity.name, dist).into()); }
+                if let Some(Value::Float(dt)) = params.get("dt") {
+                    let dist = entity.velocity * dt;
+                    entity.position += dist;
+                    web_sys::console::log_1(&format!("{} moves by {}", entity.name, dist).into());
+                }
+            }
+        } else if s.starts_with("rotateX(") {
+            if let Some(open) = s.find('(') {
+                if let Some(close) = s.find(')') {
+                    if let Ok(val) = s[open+1..close].trim().parse::<f64>() {
+                        entity.rotation_x += val;
+                    }
+                }
+            }
+        } else if s.starts_with("rotateY(") {
+            if let Some(open) = s.find('(') {
+                if let Some(close) = s.find(')') {
+                    if let Ok(val) = s[open+1..close].trim().parse::<f64>() {
+                        entity.rotation_y += val;
+                    }
+                }
+            }
+        } else if s.starts_with("rotateZ(") {
+            if let Some(open) = s.find('(') {
+                if let Some(close) = s.find(')') {
+                    if let Ok(val) = s[open+1..close].trim().parse::<f64>() {
+                        entity.rotation_z += val;
+                    }
+                }
             }
         } else if s.starts_with("takeDamage(") {
             if let Some(open) = s.find('(') { if let Some(close) = s.find(')') { let num = s[open+1..close].trim().trim_matches('"'); if let Ok(v) = num.parse::<i32>() { entity.health -= v; web_sys::console::log_1(&format!("{} takes {} damage", entity.name, v).into()); } } }
@@ -111,15 +159,25 @@ pub fn start_app(canvas_id: &str, script: &str) {
     let canvas: HtmlCanvasElement = canvas.dyn_into::<HtmlCanvasElement>().expect("not a canvas");
     let ctx = canvas.get_context("2d").unwrap().unwrap().dyn_into::<CanvasRenderingContext2d>().unwrap();
 
-    // parse entities and find plane
+    // parse entities and instantiate first entity from script
     let entities = parse_entities(script);
-    let mut plane = EntityInstance::new("Plane","Player");
-    plane.position = 200.0; plane.velocity = 0.0; plane.health = 100;
-    // find Tick event for the entity named "Plane" or the first entity
+    let mut ent = if !entities.is_empty() {
+        EntityInstance::new(&entities[0].0, "Player")
+    } else {
+        EntityInstance::new("Plane","Player")
+    };
+    ent.position = 200.0;
+    ent.velocity = 0.0;
+    ent.health = 100;
+    // find Tick event for the selected entity
     let mut tick_event: Option<Event> = None;
     for (ename, evs) in entities.iter() {
-        if ename == "Plane" || tick_event.is_none() {
-            for e in evs.iter() { if e.name == "Tick" { tick_event = Some(e.clone()); } }
+        if ename == &ent.name || tick_event.is_none() {
+            for e in evs.iter() {
+                if e.name == "Tick" {
+                    tick_event = Some(e.clone());
+                }
+            }
         }
     }
 
@@ -127,7 +185,7 @@ pub fn start_app(canvas_id: &str, script: &str) {
 
     // animation loop using recursion through request_animation_frame
     let ctx = Rc::new(ctx);
-    let plane = Rc::new(RefCell::new(plane));
+    let plane = Rc::new(RefCell::new(ent));
     let tick_event_ref = std::rc::Rc::new(tick_event);
 
     fn schedule_frame(
@@ -161,27 +219,44 @@ pub fn start_app(canvas_id: &str, script: &str) {
                 }
             }
 
-            // render simple airplane
+            // render entity (plane or cube) and hud
             {
                 let p = plane_clone.borrow();
                 let w = canvas_clone.width() as f64;
                 let h = canvas_clone.height() as f64;
                 ctx_clone.set_fill_style(&JsValue::from_str("#0b1220"));
                 ctx_clone.fill_rect(0.0, 0.0, w, h);
-                ctx_clone.set_fill_style(&JsValue::from_str("#f97316"));
-                ctx_clone.begin_path();
-                let x = p.position;
-                let y = h / 2.0;
-                ctx_clone.move_to(x as f64, y as f64 - 10.0);
-                ctx_clone.line_to(x as f64 + 30.0, y as f64);
-                ctx_clone.line_to(x as f64, y as f64 + 10.0);
-                ctx_clone.close_path();
-                ctx_clone.fill();
+                if p.name == "Cube" {
+                    // rotate and draw centered square with simple 3-axis effect
+                    ctx_clone.save();
+                    ctx_clone.translate(w/2.0, h/2.0).ok();
+                    // apply z rotation
+                    ctx_clone.rotate(p.rotation_z).ok();
+                    // simulate x/y tilt by scaling
+                    let sx = p.rotation_y.cos();
+                    let sy = p.rotation_x.cos();
+                    ctx_clone.scale(sx, sy).ok();
+                    let size = 50.0;
+                    ctx_clone.set_fill_style(&JsValue::from_str("#4ade80"));
+                    ctx_clone.fill_rect(-size/2.0, -size/2.0, size, size);
+                    ctx_clone.restore();
+                } else {
+                    ctx_clone.set_fill_style(&JsValue::from_str("#f97316"));
+                    ctx_clone.begin_path();
+                    let x = p.position;
+                    let y = h / 2.0;
+                    ctx_clone.move_to(x as f64, y as f64 - 10.0);
+                    ctx_clone.line_to(x as f64 + 30.0, y as f64);
+                    ctx_clone.line_to(x as f64, y as f64 + 10.0);
+                    ctx_clone.close_path();
+                    ctx_clone.fill();
+                }
 
                 // draw HUD
                 ctx_clone.set_fill_style(&JsValue::from_str("white"));
                 ctx_clone.fill_text(
-                    &format!("pos: {:.2} vel: {:.2} hp: {}", p.position, p.velocity, p.health),
+                    &format!("pos: {:.2} vel: {:.2} hp: {} rotX:{:.2} rotY:{:.2} rotZ:{:.2}",
+                             p.position, p.velocity, p.health, p.rotation_x, p.rotation_y, p.rotation_z),
                     10.0,
                     20.0,
                 ).ok();
@@ -197,4 +272,31 @@ pub fn start_app(canvas_id: &str, script: &str) {
     }
 
     schedule_frame(&window, ctx, plane, tick_event_ref, Rc::new(RefCell::new(last)), canvas);
+}
+
+// -- unit tests -------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn parse_simple_script() {
+        let script = "entity Plane { on Tick(dt) { move(velocity * dt); } }";
+        let entities = parse_entities(script);
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].0, "Plane");
+        assert_eq!(entities[0].1.len(), 1);
+        assert_eq!(entities[0].1[0].name, "Tick");
+    }
+
+    #[test]
+    fn rotation_statements_affect_entity() {
+        let mut entity = EntityInstance::new("Cube", "Tag");
+        exec_statements(&mut entity, "rotateX(1.5); rotateY(2.5); rotateZ(3.5);", &HashMap::new());
+        assert!((entity.rotation_x - 1.5).abs() < 1e-6);
+        assert!((entity.rotation_y - 2.5).abs() < 1e-6);
+        assert!((entity.rotation_z - 3.5).abs() < 1e-6);
+    }
 }

@@ -4,7 +4,8 @@
     <meta charset="utf-8" />
     <title>Experiment Web UI</title>
     <style>
-      body { margin: 0; font-family: Arial, sans-serif; background: #071029; color: #fff }
+      /* dark but not confusing blue */
+      body { margin: 0; font-family: Arial, sans-serif; background: #000; color: #fff }
       .layout { display: flex; height: 100vh }
       .left { width: 380px; padding: 12px; box-sizing: border-box; background: #081226 }
       .right { flex: 1; display:flex; align-items:center; justify-content:center }
@@ -13,22 +14,8 @@
     </style>
   </head>
   <body>
-    <div class="layout">
-      <div class="left">
-        <h3>Meta Script</h3>
-        <textarea id="script">entity Plane { components: [Physics]; on Tick(dt) { move(velocity * dt); }</textarea>
-        <div>
-          <button id="start">Start</button>
-          <button id="reload">Reload</button>
-          <button id="loadCube">Load Cube Example</button>
-          <button id="loadAirplane">Load Airplane Example</button>
-        </div>
-        <p>Type a script in the meta-language and click Start.</p>
-      </div>
-      <div class="right">
-        <canvas id="viewport" width="900" height="600" style="border:1px solid #222"></canvas>
-      </div>
-    </div>
+    <!-- React will render the entire UI inside this root element -->
+    <div id="root"></div>
     <script type="module" src="./bootstrap.js"></script>
   </body>
 </html>
